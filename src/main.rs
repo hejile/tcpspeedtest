@@ -1,5 +1,5 @@
 extern crate time;
-use std::net::{ TcpStream, TcpListener, SocketAddr, ToSocketAddrs };
+use std::net::{ TcpStream, TcpListener };
 use std::io::{ Read, Write };
 
 fn client_main(addr: &str) {
@@ -22,7 +22,7 @@ fn client_main(addr: &str) {
     upload_buf.resize(total_bytes, 0);
     let upload_start = time::now();
     let mut n = 0;
-    while n < buf.len() {
+    while n < upload_buf.len() {
         n += stream.write(&upload_buf[n..]).unwrap();
     }
     assert_eq!(n, total_bytes);
