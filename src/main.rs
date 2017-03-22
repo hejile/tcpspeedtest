@@ -2,17 +2,35 @@ extern crate time;
 use std::net::{ TcpStream, TcpListener };
 use std::io::{ Read, Write };
 
+fn serialize_u32(n: u32) -> Vec<u8> {
+    let mut buf: Vec<u8> = Vec::with_capacity(4);
+    buf.push(((n & 0xff000000) >> 24) as u8);
+    buf.push(((n & 0x00ff0000) >> 16) as u8);
+    buf.push(((n & 0x0000ff00) >> 8) as u8);
+    buf.push(((n & 0x000000ff) >> 0) as u8);
+    buf
+}
+
+fn deserialize_u32(buf: &[u8]) -> u32 {
+    assert_eq!(buf.len(), 4);
+    let mut n = 0;
+    n += (buf[0] as u32) << 24;
+    n += (buf[1] as u32) << 16;
+    n += (buf[2] as u32) << 8;
+    n += (buf[3] as u32) << 0;
+    n
+}
+
 fn client_main(addr: &str) {
     let mut stream = TcpStream::connect(&addr).unwrap();
     let mut buf = vec![0;1024*128];
     let mut total_bytes = 0;
     let download_start = time::now();
-    loop {
-        let n = stream.read(&mut buf).unwrap();
-        if n == 0 {
-            break;
-        }
-        total_bytes += n;
+    total_bytes = stream.read(&mut buf).unwrap() - 4;
+    let data_size = deserialize_u32(&buf[..4]) as usize;
+    println!("data_size: {}", data_size);
+    while total_bytes < data_size {
+        total_bytes += stream.read(&mut buf).unwrap();
     }
     let download_dur = time::now() - download_start;
     let download_speed = (total_bytes as f64) / 1024. / (download_dur.num_milliseconds() as f64) * 1000.;
@@ -20,15 +38,20 @@ fn client_main(addr: &str) {
 
     let mut upload_buf: Vec<u8> = Vec::with_capacity(total_bytes);
     upload_buf.resize(total_bytes, 0);
-    let upload_start = time::now();
     let mut n = 0;
     while n < upload_buf.len() {
+        println!("{}", n);
         n += stream.write(&upload_buf[n..]).unwrap();
+        println!("{}", n);
     }
     assert_eq!(n, total_bytes);
-    let upload_dur = time::now() - upload_start;
-    let upload_speed = (total_bytes as f64) / 1024. / (upload_dur.num_milliseconds() as f64) * 1000.;
-    println!("upload {} bytes, {} second, {} KiB/s", total_bytes, upload_dur.num_seconds(), upload_speed);
+    let mut upload_dur = 0usize;
+    {
+        assert_eq!(stream.read(&mut buf).unwrap(), 4);
+        upload_dur = deserialize_u32(&buf[..4]) as usize;
+    }
+    let upload_speed = (total_bytes as f64) / 1024. / (upload_dur as f64) * 1000.;
+    println!("upload {} bytes, {} second, {} KiB/s", total_bytes, upload_dur / 1000, upload_speed);
 }
 
 fn server_main(port: u16, data_size: usize) {
@@ -39,17 +62,24 @@ fn server_main(port: u16, data_size: usize) {
         println!("request comming");
         let mut server = iter.unwrap();
         let mut n = 0;
+        {
+            let data_size_buf = serialize_u32(data_size as u32);
+            assert_eq!(server.write(&data_size_buf).unwrap(), 4);
+        }
         println!("write start");
-        while n < buf.len() {
+        while n < data_size {
             n += server.write(&buf[n..]).unwrap();
         }
-        server.shutdown(std::net::Shutdown::Write).unwrap();
         println!("read start");
-        loop {
-            let n = server.read(&mut buf).unwrap();
-            if n == 0 {
-                break;
-            }   
+        let upload_start = time::now();
+        n = 0;
+        while n < data_size {
+            n += server.read(&mut buf).unwrap();
+        }
+        let upload_dur = time::now() - upload_start;
+        {
+            let upload_dur_buf = serialize_u32(upload_dur.num_milliseconds() as u32);
+            assert_eq!(server.write(&upload_dur_buf).unwrap(), 4);
         }
         println!("request end");
     }
