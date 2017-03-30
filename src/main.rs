@@ -1,6 +1,8 @@
 extern crate time;
+extern crate rand;
 use std::net::{ TcpStream, TcpListener };
 use std::io::{ Read, Write };
+use rand::Rng;
 
 fn serialize_u32(n: u32) -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::with_capacity(4);
@@ -21,6 +23,13 @@ fn deserialize_u32(buf: &[u8]) -> u32 {
     n
 }
 
+fn fill_buf_with_random_data(buf: &mut [u8]) {
+    let mut rng = rand::thread_rng();
+    for i in 0..buf.len() {
+        buf[i] = rng.gen();
+    }
+}
+
 fn client_main(addr: &str) {
     let mut stream = TcpStream::connect(&addr).unwrap();
     let mut buf = vec![0;1024*128];
@@ -38,6 +47,7 @@ fn client_main(addr: &str) {
 
     let mut upload_buf: Vec<u8> = Vec::with_capacity(total_bytes);
     upload_buf.resize(total_bytes, 0);
+    fill_buf_with_random_data(&mut upload_buf);
     let mut n = 0;
     while n < upload_buf.len() {
         println!("{}", n);
@@ -58,6 +68,7 @@ fn server_main(port: u16, data_size: usize) {
     let listener = TcpListener::bind(("0.0.0.0", port)).unwrap();
     let mut buf: Vec<u8> = Vec::with_capacity(data_size);
     buf.resize(data_size, 0);
+    fill_buf_with_random_data(&mut buf);
     for iter in listener.incoming() {
         println!("request comming");
         let mut server = iter.unwrap();
